@@ -361,7 +361,10 @@ function bucle(){
     alertaEl.classList.toggle("on",hay);
     alertaEl.textContent = hay?"● rastro detectado":"— sin rastro";
     zonaEl.classList.toggle("activa",hay);
-    if(hay && navigator.vibrate){const ahora=Date.now();if(ahora-ultimoBuzz>900){navigator.vibrate(140);ultimoBuzz=ahora;}}
+  }
+  if(hay && navigator.vibrate){
+    const ahora=Date.now();
+    if(ahora-ultimoBuzz>700){navigator.vibrate(140);ultimoBuzz=ahora;}
   }
 
   requestAnimationFrame(bucle);
