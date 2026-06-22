@@ -211,25 +211,13 @@ $("#btnCongelar").addEventListener("click",e=>{
 });
 $("#btnLinterna").addEventListener("click",async e=>{
   if(!track)return;
-  const btn=e.currentTarget;          // capturar antes de cualquier await (luego e.currentTarget es null)
+  const btn=e.currentTarget;          // capturar antes del await (luego e.currentTarget es null)
   const on=!linternaOn;
-  try{await track.applyConstraints({advanced:[{torch:on}]});}catch(_){}
-  if(!on){
-    // En varios Android/Chrome, torch:false no apaga el LED si no se reinicia la cámara
-    try{
-      stream.getTracks().forEach(t=>t.stop());
-      stream = await navigator.mediaDevices.getUserMedia({
-        video:{facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:720}}, audio:false
-      });
-      video.srcObject=stream;
-      track=stream.getVideoTracks()[0];
-      await video.play();
-      const caps=track.getCapabilities?track.getCapabilities():{};
-      btn.disabled=!caps.torch;
-    }catch(_){}
-  }
-  linternaOn=on;
-  btn.classList.toggle("activo",on);
+  try{
+    await track.applyConstraints({advanced:[{torch:on}]});
+    linternaOn=on;
+  }catch(_){}
+  btn.classList.toggle("activo",linternaOn);
 });
 $("#btnPantalla").addEventListener("click",()=>{
   const el=document.documentElement;
@@ -387,7 +375,14 @@ document.addEventListener("visibilitychange",async()=>{
 });
 
 if("serviceWorker" in navigator){
-  window.addEventListener("load",()=>{navigator.serviceWorker.register("./sw.js").catch(()=>{});});
+  window.addEventListener("load",()=>{
+    navigator.serviceWorker.register("./sw.js").then(reg=>{reg.update();}).catch(()=>{});
+    // cuando un service worker nuevo toma el control, recargar para usar la versión fresca
+    let recargado=false;
+    navigator.serviceWorker.addEventListener("controllerchange",()=>{
+      if(recargado)return;recargado=true;location.reload();
+    });
+  });
 }
 </script>
 </body>
