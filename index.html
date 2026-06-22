@@ -43,11 +43,21 @@
   #visor{position:relative;flex:1;min-height:0;background:#000;overflow:hidden;
     display:flex;align-items:center;justify-content:center;}
 
-  /* Pantalla completa: header y panel flotan sobre el visor para que la cámara use toda la pantalla */
+  /* Pantalla completa: header y panel flotan sobre el visor y se ocultan deslizándose */
   #app.fs header,#app.fs #panel{position:absolute;left:0;right:0;z-index:5;
-    background:rgba(7,10,7,.55);backdrop-filter:blur(3px);}
-  #app.fs header{top:0;border-bottom:none;}
-  #app.fs #panel{bottom:0;border-top:none;padding-bottom:max(16px,env(safe-area-inset-bottom));}
+    background:rgba(7,10,7,.62);backdrop-filter:blur(4px);transition:transform .28s ease;}
+  #app.fs header{top:0;border-bottom:none;transform:translateY(-100%);}
+  #app.fs #panel{bottom:0;border-top:none;padding-bottom:max(16px,env(safe-area-inset-bottom));
+    transform:translateY(calc(100% - 30px));}
+  /* panel abierto: todo visible */
+  #app.fs.panel-abierto header{transform:translateY(0);}
+  #app.fs.panel-abierto #panel{transform:translateY(0);}
+
+  /* Tirador: pestaña para abrir/cerrar los controles (solo en pantalla completa) */
+  #tirador{display:none;}
+  #app.fs #tirador{display:flex;align-items:center;justify-content:center;
+    height:22px;margin:-2px 0 8px;cursor:pointer;touch-action:none;}
+  #tirador::before{content:"";width:48px;height:5px;border-radius:3px;background:rgba(216,208,191,.55);}
   #lienzo{width:100%;height:100%;object-fit:cover;image-rendering:auto;display:block;}
   video{display:none;}
 
@@ -143,6 +153,7 @@
   </div>
 
   <div id="panel">
+    <div id="tirador" aria-label="Mostrar u ocultar controles"></div>
     <div class="fila">
       <div class="seg" id="modo">
         <button data-m="fresca" class="sel">Sangre fresca</button>
@@ -221,12 +232,32 @@ $("#btnPantalla").addEventListener("click",()=>{
   if(!document.fullscreenElement){(el.requestFullscreen||el.webkitRequestFullscreen||(()=>{})).call(el);}
   else{(document.exitFullscreen||document.webkitExitFullscreen||(()=>{})).call(document);}
 });
-document.addEventListener("fullscreenchange",()=>{
-  $("#app").classList.toggle("fs",!!document.fullscreenElement);
-});
-document.addEventListener("webkitfullscreenchange",()=>{
-  $("#app").classList.toggle("fs",!!document.webkitFullscreenElement);
-});
+function onFsChange(activo){
+  const app=$("#app");
+  app.classList.toggle("fs",activo);
+  if(!activo)app.classList.remove("panel-abierto");
+}
+document.addEventListener("fullscreenchange",()=>onFsChange(!!document.fullscreenElement));
+document.addEventListener("webkitfullscreenchange",()=>onFsChange(!!document.webkitFullscreenElement));
+
+/* Tirador deslizable: tap para alternar, o arrastrar verticalmente */
+(function(){
+  const app=$("#app"), tir=$("#tirador");
+  let y0=null, movido=false;
+  const abrir=()=>app.classList.add("panel-abierto");
+  const cerrar=()=>app.classList.remove("panel-abierto");
+  tir.addEventListener("pointerdown",e=>{y0=e.clientY;movido=false;tir.setPointerCapture(e.pointerId);});
+  tir.addEventListener("pointermove",e=>{
+    if(y0===null)return;const dy=e.clientY-y0;
+    if(Math.abs(dy)>14){movido=true;if(dy<0)abrir();else cerrar();}
+  });
+  tir.addEventListener("pointerup",e=>{
+    if(!movido)app.classList.toggle("panel-abierto");
+    y0=null;
+  });
+  // tocar la cámara cierra el panel
+  $("#visor").addEventListener("pointerdown",()=>{if(app.classList.contains("fs"))cerrar();});
+})();
 
 /* ---- Cámara ---- */
 async function iniciar(){
