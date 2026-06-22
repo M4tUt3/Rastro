@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Busca Rastro</title>
+<style>
+  :root {
+    --primary: #0a5c36;
+    --primary-light: #e8f5ee;
+    --text: #1c1c1c;
+    --muted: #6b6b6b;
+    --border: #dcdcdc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    background: #f4f6f5;
+    color: var(--text);
+  }
+  header {
+    background: var(--primary);
+    color: #fff;
+    padding: 24px 16px;
+    text-align: center;
+  }
+  header h1 { margin: 0; font-size: 1.5rem; }
+  header p { margin: 4px 0 0; opacity: 0.85; font-size: 0.9rem; }
+
+  main {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 24px 16px 64px;
+  }
+
+  .search-box {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+  .search-box input {
+    flex: 1;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 1rem;
+    text-transform: uppercase;
+  }
+  .search-box button {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 6px;
+    background: var(--primary);
+    color: #fff;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  .search-box button:hover { background: #084a2c; }
+  .search-box button:disabled { background: #9bbba9; cursor: not-allowed; }
+
+  .hint { font-size: 0.85rem; color: var(--muted); margin-top: -16px; margin-bottom: 24px; }
+  .hint code { background: #eee; padding: 1px 5px; border-radius: 4px; }
+
+  #message {
+    padding: 12px 14px;
+    border-radius: 6px;
+    background: #fdecea;
+    color: #8a1f1f;
+    margin-bottom: 16px;
+    display: none;
+  }
+
+  .result-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    display: none;
+  }
+  .result-card h2 {
+    margin: 0 0 4px;
+    font-size: 1.1rem;
+  }
+  .result-card .code { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; }
+
+  .timeline {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-left: 2px solid var(--border);
+  }
+  .timeline li {
+    position: relative;
+    padding: 0 0 20px 24px;
+  }
+  .timeline li:last-child { padding-bottom: 0; }
+  .timeline li::before {
+    content: "";
+    position: absolute;
+    left: -7px;
+    top: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--border);
+    border: 2px solid #fff;
+  }
+  .timeline li.current::before { background: var(--primary); }
+  .timeline li.current .status { color: var(--primary); font-weight: 600; }
+  .timeline .status { font-size: 0.95rem; }
+  .timeline .meta { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+
+  footer {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--muted);
+    padding: 16px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Busca Rastro</h1>
+  <p>Acompanhe o status da sua encomenda</p>
+</header>
+
+<main>
+  <form id="search-form" class="search-box">
+    <input
+      id="code-input"
+      type="text"
+      placeholder="Digite o código de rastreio"
+      autocomplete="off"
+      maxlength="20"
+      required
+    >
+    <button type="submit" id="search-btn">Buscar</button>
+  </form>
+  <p class="hint">Demonstração — experimente <code>AA123456789BR</code> ou <code>BB987654321BR</code>.</p>
+
+  <div id="message"></div>
+
+  <section id="result" class="result-card">
+    <h2 id="result-title"></h2>
+    <div class="code" id="result-code"></div>
+    <ul class="timeline" id="result-timeline"></ul>
+  </section>
+</main>
+
+<footer>
+  Dados de demonstração. Para uso real, conecte a função <code>fetchTracking()</code> a uma API de rastreio.
+</footer>
+
+<script>
+  // Dados de exemplo simulando uma resposta de API de rastreio.
+  const SAMPLE_DATA = {
+    "AA123456789BR": {
+      title: "Encomenda em trânsito",
+      events: [
+        { status: "Objeto postado", date: "18/06/2026 09:12", local: "São Paulo - SP" },
+        { status: "Encomenda em trânsito", date: "19/06/2026 14:30", local: "Centro de Distribuição - Campinas/SP", current: true },
+      ],
+    },
+    "BB987654321BR": {
+      title: "Encomenda entregue",
+      events: [
+        { status: "Objeto postado", date: "10/06/2026 08:00", local: "Rio de Janeiro - RJ" },
+        { status: "Encomenda em trânsito", date: "11/06/2026 17:45", local: "Centro de Distribuição - Niterói/RJ" },
+        { status: "Saiu para entrega", date: "12/06/2026 08:20", local: "Niterói - RJ" },
+        { status: "Objeto entregue ao destinatário", date: "12/06/2026 13:55", local: "Niterói - RJ", current: true },
+      ],
+    },
+  };
+
+  // Ponto de extensão: troque esta função por uma chamada real a uma API de rastreio.
+  async function fetchTracking(code) {
+    await new Promise((r) => setTimeout(r, 400));
+    const data = SAMPLE_DATA[code];
+    if (!data) throw new Error("Código não encontrado.");
+    return data;
+  }
+
+  const form = document.getElementById("search-form");
+  const input = document.getElementById("code-input");
+  const btn = document.getElementById("search-btn");
+  const messageBox = document.getElementById("message");
+  const resultCard = document.getElementById("result");
+  const resultTitle = document.getElementById("result-title");
+  const resultCode = document.getElementById("result-code");
+  const resultTimeline = document.getElementById("result-timeline");
+
+  function showMessage(text) {
+    messageBox.textContent = text;
+    messageBox.style.display = text ? "block" : "none";
+  }
+
+  function renderResult(code, data) {
+    resultTitle.textContent = data.title;
+    resultCode.textContent = code;
+    resultTimeline.innerHTML = "";
+    data.events
+      .slice()
+      .reverse()
+      .forEach((ev) => {
+        const li = document.createElement("li");
+        if (ev.current) li.classList.add("current");
+        li.innerHTML = `
+          <div class="status">${ev.status}</div>
+          <div class="meta">${ev.date} · ${ev.local}</div>
+        `;
+        resultTimeline.appendChild(li);
+      });
+    resultCard.style.display = "block";
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const code = input.value.trim().toUpperCase();
+    showMessage("");
+    resultCard.style.display = "none";
+    if (!code) return;
+
+    btn.disabled = true;
+    btn.textContent = "Buscando...";
+    try {
+      const data = await fetchTracking(code);
+      renderResult(code, data);
+    } catch (err) {
+      showMessage(err.message || "Não foi possível buscar este código.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Buscar";
+    }
+  });
+</script>
+
+</body>
+</html>
