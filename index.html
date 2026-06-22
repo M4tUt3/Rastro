@@ -189,6 +189,7 @@ const pctEl = $("#pct"), alertaEl = $("#alerta"), zonaEl = $("#zona");
 let stream=null, track=null, corriendo=false, congelado=false, wakeLock=null;
 let ancho=0, alto=0;
 let modo="fresca", colorSel="rojo", sens=0.60;
+let linternaOn=false;
 
 const COLORES = {
   rojo:[255,40,40], amarillo:[255,224,0], verde:[60,255,40], cian:[0,235,255]
@@ -209,7 +210,9 @@ $("#btnCongelar").addEventListener("click",e=>{
   if(!congelado)bucle();
 });
 $("#btnLinterna").addEventListener("click",async e=>{
-  if(!track)return;const on=!e.currentTarget.classList.contains("activo");
+  if(!track)return;
+  const btn=e.currentTarget;          // capturar antes de cualquier await (luego e.currentTarget es null)
+  const on=!linternaOn;
   try{await track.applyConstraints({advanced:[{torch:on}]});}catch(_){}
   if(!on){
     // En varios Android/Chrome, torch:false no apaga el LED si no se reinicia la cámara
@@ -222,10 +225,11 @@ $("#btnLinterna").addEventListener("click",async e=>{
       track=stream.getVideoTracks()[0];
       await video.play();
       const caps=track.getCapabilities?track.getCapabilities():{};
-      $("#btnLinterna").disabled=!caps.torch;
+      btn.disabled=!caps.torch;
     }catch(_){}
   }
-  e.currentTarget.classList.toggle("activo",on);
+  linternaOn=on;
+  btn.classList.toggle("activo",on);
 });
 $("#btnPantalla").addEventListener("click",()=>{
   const el=document.documentElement;
