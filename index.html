@@ -61,15 +61,6 @@
   #lienzo{width:100%;height:100%;object-fit:cover;image-rendering:auto;display:block;}
   video{display:none;}
 
-  /* Reticula */
-  #reticula{position:absolute;inset:0;pointer-events:none;}
-  #reticula::before,#reticula::after{content:"";position:absolute;background:rgba(216,208,191,.28);}
-  #reticula::before{left:50%;top:calc(50% - 17px);width:1px;height:34px;transform:translateX(-.5px);}
-  #reticula::after{top:50%;left:calc(50% - 17px);height:1px;width:34px;transform:translateY(-.5px);}
-  .zona{position:absolute;left:50%;top:50%;width:38%;height:38%;transform:translate(-50%,-50%);
-    border:1px solid rgba(224,163,36,.30);border-radius:3px;}
-  .zona.activa{border-color:var(--sangre);box-shadow:0 0 0 1px var(--sangre),0 0 22px rgba(181,22,26,.55) inset;}
-
   /* HUD lectura */
   #hud{position:absolute;left:12px;top:12px;display:flex;flex-direction:column;gap:6px;}
   .lectura{background:rgba(7,10,7,.62);backdrop-filter:blur(2px);border:1px solid var(--linea);
@@ -137,7 +128,6 @@
   <div id="visor">
     <video id="video" playsinline muted autoplay></video>
     <canvas id="lienzo"></canvas>
-    <div id="reticula"><div class="zona" id="zona"></div></div>
     <div id="hud">
       <div class="lectura"><div class="k">Detección</div><div class="v mono"><span id="pct">0</span><small>%</small></div></div>
     </div>
@@ -185,9 +175,9 @@
 const $ = s => document.querySelector(s);
 const video = $("#video"), lienzo = $("#lienzo"), ctx = lienzo.getContext("2d", {willReadFrequently:true});
 const inicio = $("#inicio"), aviso = $("#aviso"), estado = $("#estado");
-const pctEl = $("#pct"), alertaEl = $("#alerta"), zonaEl = $("#zona");
+const pctEl = $("#pct"), alertaEl = $("#alerta");
 let stream=null, track=null, corriendo=false, congelado=false, wakeLock=null;
-let ancho=0, alto=0;
+let ancho=0, alto=0, mask=null, visit=null;
 let modo="fresca", colorSel="rojo", sens=0.60;
 let linternaOn=false;
 
@@ -271,6 +261,7 @@ async function iniciar(){
   const maxW=480;
   ancho=Math.min(vw,maxW); alto=Math.round(ancho*vh/vw);
   lienzo.width=ancho; lienzo.height=alto;
+  mask=new Uint8Array(ancho*alto); visit=new Uint8Array(ancho*alto);
 
   // linterna si el equipo la soporta
   try{const caps=track.getCapabilities?track.getCapabilities():{};
@@ -304,19 +295,12 @@ function bucle(){
   const d=img.data;
   const t=umbrales();
   const [hr,hg,hb]=COLORES[colorSel];
-
-  // zona central para la alerta visual (mira); el total de la imagen es para la vibración
-  const zx0=ancho*0.31|0, zx1=ancho*0.69|0, zy0=alto*0.31|0, zy1=alto*0.69|0;
-  let zonaTot=0, zonaSangre=0, totalPx=0, totalSangre=0;
+  let totalSangre=0;
 
   for(let y=0;y<alto;y++){
-    const enFilaZona = (y>=zy0&&y<zy1);
     for(let x=0;x<ancho;x++){
-      const i=(y*ancho+x)*4;
+      const p=y*ancho+x, i=p*4;
       const r=d[i],g=d[i+1],b=d[i+2];
-      const enZona = enFilaZona && x>=zx0 && x<zx1;
-      if(enZona)zonaTot++;
-      totalPx++;
 
       // rojo debe dominar
       let esSangre=false;
@@ -339,11 +323,11 @@ function bucle(){
         }
       }
 
+      mask[p]=esSangre?1:0;
       if(esSangre){
         // brillo según intensidad original para dar textura
         const k=0.7+0.3*(r/255);
         d[i]=Math.min(255,hr*k); d[i+1]=Math.min(255,hg*k); d[i+2]=Math.min(255,hb*k);
-        if(enZona)zonaSangre++;
         totalSangre++;
       }else{
         // fondo: gris-azulado oscuro
@@ -354,25 +338,59 @@ function bucle(){
   }
   ctx.putImageData(img,0,0);
 
-  const pct = zonaTot? (zonaSangre/zonaTot*100):0;
+  const minArea=Math.max(5,Math.round(ancho*alto*0.00012));
+  const manchas=detectarManchas(mask,ancho,alto,visit,minArea);
+
+  ctx.lineWidth=2;ctx.strokeStyle="rgba(224,163,36,.95)";
+  ctx.shadowColor="rgba(224,163,36,.55)";ctx.shadowBlur=4;
+  for(const m of manchas){
+    ctx.beginPath();ctx.arc(m.cx+0.5,m.cy+0.5,m.r,0,Math.PI*2);ctx.stroke();
+  }
+  ctx.shadowBlur=0;
+
+  const pct = totalSangre? (totalSangre/(ancho*alto)*100):0;
   pctEl.textContent = pct<1 ? pct.toFixed(1) : Math.round(pct);
 
-  const hay = pct>=1.2;
+  const hay = manchas.length>0;
   if(hay!==alertaActiva){
     alertaActiva=hay;
     alertaEl.classList.toggle("on",hay);
     alertaEl.textContent = hay?"● rastro detectado":"— sin rastro";
-    zonaEl.classList.toggle("activa",hay);
   }
 
-  // la vibración avisa de sangre en cualquier parte del cuadro, no solo en la mira central
-  const hayEnCuadro = totalPx? (totalSangre/totalPx*100)>=0.15 : false;
-  if(hayEnCuadro && navigator.vibrate){
+  if(hay && navigator.vibrate){
     const ahora=Date.now();
     if(ahora-ultimoBuzz>700){navigator.vibrate(140);ultimoBuzz=ahora;}
   }
 
   requestAnimationFrame(bucle);
+}
+
+/* Agrupa píxeles de sangre conectados (gotas/manchas) y devuelve círculos para resaltarlos */
+function detectarManchas(mask,ancho,alto,visit,minArea){
+  visit.fill(0);
+  const manchas=[];
+  const pila=[];
+  for(let p=0;p<mask.length;p++){
+    if(!mask[p]||visit[p])continue;
+    pila.length=0;pila.push(p);visit[p]=1;
+    let cuenta=0,sx=0,sy=0,minX=ancho,maxX=0,minY=alto,maxY=0;
+    while(pila.length){
+      const q=pila.pop();
+      const x=q%ancho,y=(q/ancho)|0;
+      cuenta++;sx+=x;sy+=y;
+      if(x<minX)minX=x; if(x>maxX)maxX=x;
+      if(y<minY)minY=y; if(y>maxY)maxY=y;
+      if(x>0){const n=q-1;if(mask[n]&&!visit[n]){visit[n]=1;pila.push(n);}}
+      if(x<ancho-1){const n=q+1;if(mask[n]&&!visit[n]){visit[n]=1;pila.push(n);}}
+      if(y>0){const n=q-ancho;if(mask[n]&&!visit[n]){visit[n]=1;pila.push(n);}}
+      if(y<alto-1){const n=q+ancho;if(mask[n]&&!visit[n]){visit[n]=1;pila.push(n);}}
+    }
+    if(cuenta>=minArea){
+      manchas.push({cx:sx/cuenta,cy:sy/cuenta,r:Math.max((maxX-minX)/2,(maxY-minY)/2,4)+3});
+    }
+  }
+  return manchas;
 }
 
 // reactivar wakeLock al volver a la pestaña
