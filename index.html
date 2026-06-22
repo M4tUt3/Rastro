@@ -305,9 +305,9 @@ function bucle(){
   const t=umbrales();
   const [hr,hg,hb]=COLORES[colorSel];
 
-  // zona central para la alerta
+  // zona central para la alerta visual (mira); el total de la imagen es para la vibración
   const zx0=ancho*0.31|0, zx1=ancho*0.69|0, zy0=alto*0.31|0, zy1=alto*0.69|0;
-  let zonaTot=0, zonaSangre=0;
+  let zonaTot=0, zonaSangre=0, totalPx=0, totalSangre=0;
 
   for(let y=0;y<alto;y++){
     const enFilaZona = (y>=zy0&&y<zy1);
@@ -316,6 +316,7 @@ function bucle(){
       const r=d[i],g=d[i+1],b=d[i+2];
       const enZona = enFilaZona && x>=zx0 && x<zx1;
       if(enZona)zonaTot++;
+      totalPx++;
 
       // rojo debe dominar
       let esSangre=false;
@@ -343,6 +344,7 @@ function bucle(){
         const k=0.7+0.3*(r/255);
         d[i]=Math.min(255,hr*k); d[i+1]=Math.min(255,hg*k); d[i+2]=Math.min(255,hb*k);
         if(enZona)zonaSangre++;
+        totalSangre++;
       }else{
         // fondo: gris-azulado oscuro
         const lum=(r*0.299+g*0.587+b*0.114);
@@ -362,7 +364,10 @@ function bucle(){
     alertaEl.textContent = hay?"● rastro detectado":"— sin rastro";
     zonaEl.classList.toggle("activa",hay);
   }
-  if(hay && navigator.vibrate){
+
+  // la vibración avisa de sangre en cualquier parte del cuadro, no solo en la mira central
+  const hayEnCuadro = totalPx? (totalSangre/totalPx*100)>=0.15 : false;
+  if(hayEnCuadro && navigator.vibrate){
     const ahora=Date.now();
     if(ahora-ultimoBuzz>700){navigator.vibrate(140);ultimoBuzz=ahora;}
   }
