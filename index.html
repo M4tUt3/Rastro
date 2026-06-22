@@ -42,6 +42,12 @@
   /* Visor */
   #visor{position:relative;flex:1;min-height:0;background:#000;overflow:hidden;
     display:flex;align-items:center;justify-content:center;}
+
+  /* Pantalla completa: header y panel flotan sobre el visor para que la cámara use toda la pantalla */
+  #app.fs header,#app.fs #panel{position:absolute;left:0;right:0;z-index:5;
+    background:rgba(7,10,7,.55);backdrop-filter:blur(3px);}
+  #app.fs header{top:0;border-bottom:none;}
+  #app.fs #panel{bottom:0;border-top:none;padding-bottom:max(16px,env(safe-area-inset-bottom));}
   #lienzo{width:100%;height:100%;object-fit:cover;image-rendering:auto;display:block;}
   video{display:none;}
 
@@ -214,6 +220,12 @@ $("#btnPantalla").addEventListener("click",()=>{
   const el=document.documentElement;
   if(!document.fullscreenElement){(el.requestFullscreen||el.webkitRequestFullscreen||(()=>{})).call(el);}
   else{(document.exitFullscreen||document.webkitExitFullscreen||(()=>{})).call(document);}
+});
+document.addEventListener("fullscreenchange",()=>{
+  $("#app").classList.toggle("fs",!!document.fullscreenElement);
+});
+document.addEventListener("webkitfullscreenchange",()=>{
+  $("#app").classList.toggle("fs",!!document.webkitFullscreenElement);
 });
 
 /* ---- Cámara ---- */
