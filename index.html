@@ -193,8 +193,22 @@ $("#btnCongelar").addEventListener("click",e=>{
 });
 $("#btnLinterna").addEventListener("click",async e=>{
   if(!track)return;const on=!e.currentTarget.classList.contains("activo");
-  try{await track.applyConstraints({advanced:[{torch:on}]});
-    e.currentTarget.classList.toggle("activo",on);}catch(_){}
+  try{await track.applyConstraints({advanced:[{torch:on}]});}catch(_){}
+  if(!on){
+    // En varios Android/Chrome, torch:false no apaga el LED si no se reinicia la cámara
+    try{
+      stream.getTracks().forEach(t=>t.stop());
+      stream = await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:720}}, audio:false
+      });
+      video.srcObject=stream;
+      track=stream.getVideoTracks()[0];
+      await video.play();
+      const caps=track.getCapabilities?track.getCapabilities():{};
+      $("#btnLinterna").disabled=!caps.torch;
+    }catch(_){}
+  }
+  e.currentTarget.classList.toggle("activo",on);
 });
 $("#btnPantalla").addEventListener("click",()=>{
   const el=document.documentElement;
