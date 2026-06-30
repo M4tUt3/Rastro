@@ -73,6 +73,7 @@
     background:rgba(7,10,7,.62);color:var(--hueso-tenue);transition:all .12s;}
   .alerta.on{background:var(--sangre);color:#fff;border-color:var(--sangre);box-shadow:0 0 18px rgba(181,22,26,.6);animation:alertaPulso 1s ease-in-out infinite;}
   @keyframes alertaPulso{0%,100%{box-shadow:0 0 14px rgba(181,22,26,.5);transform:scale(1);}50%{box-shadow:0 0 32px rgba(181,22,26,.98);transform:scale(1.06);}}
+  .version{position:absolute;left:10px;bottom:10px;font-size:10px;letter-spacing:.14em;color:var(--hueso-tenue);opacity:.5;pointer-events:none;z-index:4;}
 
   /* Pantalla de inicio */
   #inicio{position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 0%,#11170f 0%,#070a07 70%);
@@ -133,6 +134,7 @@
       <div class="lectura"><div class="k">Detección</div><div class="v mono"><span id="pct">0</span><small>%</small></div></div>
     </div>
     <div class="alerta mono" id="alerta">— sin rastro</div>
+    <div class="version mono" id="ver"></div>
 
     <div id="inicio">
       <h1>RASTRO</h1>
@@ -178,8 +180,9 @@ const $ = s => document.querySelector(s);
 const video = $("#video"), lienzo = $("#lienzo"), ctx = lienzo.getContext("2d", {willReadFrequently:true});
 const inicio = $("#inicio"), aviso = $("#aviso"), estado = $("#estado");
 const pctEl = $("#pct"), alertaEl = $("#alerta");
+const VERSION = "v5"; $("#ver").textContent = VERSION;
 let stream=null, track=null, corriendo=false, congelado=false, wakeLock=null;
-let ancho=0, alto=0, mask=null, visit=null;
+let ancho=0, alto=0, mask=null, mask2=null, visit=null;
 let modo="fresca", colorSel="rojo", sens=0.60;
 let linternaOn=false;
 
@@ -298,7 +301,7 @@ async function iniciar(){
   const maxW=480;
   ancho=Math.min(vw,maxW); alto=Math.round(ancho*vh/vw);
   lienzo.width=ancho; lienzo.height=alto;
-  mask=new Uint8Array(ancho*alto); visit=new Uint8Array(ancho*alto);
+  mask=new Uint8Array(ancho*alto); mask2=new Uint8Array(ancho*alto); visit=new Uint8Array(ancho*alto);
 
   // linterna si el equipo la soporta
   try{const caps=track.getCapabilities?track.getCapabilities():{};
@@ -309,20 +312,54 @@ async function iniciar(){
 
   inicio.style.display="none";
   estado.textContent="rastreando";
-  corriendo=true; congelado=false;
+  corriendo=true; congelado=false; persist=0;
   bucle();
 }
 
-/* ---- Umbrales según modo + sensibilidad ---- */
+/* ---- Umbrales según modo + sensibilidad ----
+   Trabajan sobre la "rojez" normalizada: cuánto supera el rojo al verde
+   (rg) y al azul (rb), dividido por el brillo total. Es más estable ante
+   la exposición y el balance de blancos que el tono HSV. Mayor sens =>
+   umbrales más bajos => detecta más. */
 function umbrales(){
   if(modo==="fresca"){
-    return {hLow:8+12*sens, hHigh:352-12*sens, sMin:0.55-0.38*sens, vMin:0.12, vMax:0.98};
-  }else{ // seca / oscura
-    return {hLow:24+20*sens, hHigh:344-16*sens, sMin:0.34-0.26*sens, vMin:0.05, vMax:0.93};
+    // sangre fresca: rojo vivo y saturado
+    return {rg:0.34-0.20*sens, rb:0.18-0.12*sens, vMin:0.12};
+  }else{
+    // sangre seca / oscura: marrón rojizo, menos saturado
+    return {rg:0.18-0.12*sens, rb:0.08-0.05*sens, vMin:0.05};
   }
 }
 
-let alertaActiva=false, ultimoBuzz=0;
+/* Apertura morfológica (erosión + dilatación, vecindad de 4): borra el
+   moteado de ruido suelto (sobre todo de noche) sin achicar las manchas
+   reales. Usa 'tmp' como buffer intermedio y deja el resultado en 'src'. */
+function abrirMascara(src,tmp,w,h){
+  for(let y=0;y<h;y++){           // erosión -> tmp
+    for(let x=0;x<w;x++){
+      const p=y*w+x; let on=src[p];
+      if(on){
+        if(x===0||x===w-1||y===0||y===h-1)on=0;
+        else if(!(src[p-1]&&src[p+1]&&src[p-w]&&src[p+w]))on=0;
+      }
+      tmp[p]=on;
+    }
+  }
+  for(let y=0;y<h;y++){           // dilatación -> src
+    for(let x=0;x<w;x++){
+      const p=y*w+x; let on=tmp[p];
+      if(!on){
+        if(x>0&&tmp[p-1])on=1;
+        else if(x<w-1&&tmp[p+1])on=1;
+        else if(y>0&&tmp[p-w])on=1;
+        else if(y<h-1&&tmp[p+w])on=1;
+      }
+      src[p]=on;
+    }
+  }
+}
+
+let alertaActiva=false, ultimoBuzz=0, persist=0;
 
 function bucle(){
   if(!corriendo||congelado)return;
@@ -332,45 +369,35 @@ function bucle(){
   const d=img.data;
   const t=umbrales();
   const [hr,hg,hb]=COLORES[colorSel];
+  const vMin255=t.vMin*255;
+
+  // 1) Clasificación por "rojez" normalizada (R-G y R-B sobre R+G+B).
+  for(let p=0,i=0;p<mask.length;p++,i+=4){
+    const r=d[i],g=d[i+1],b=d[i+2];
+    let es=0;
+    if(r>=g && r>=b && r>=vMin255){   // rojo es el canal dominante y hay brillo
+      const sum=r+g+b+1;
+      if((r-g)/sum>=t.rg && (r-b)/sum>=t.rb) es=1;
+    }
+    mask[p]=es;
+  }
+
+  // 2) Apertura morfológica: limpia el ruido moteado.
+  abrirMascara(mask,mask2,ancho,alto);
+
+  // 3) Pintado según la máscara ya limpia.
   let totalSangre=0;
-
-  for(let y=0;y<alto;y++){
-    for(let x=0;x<ancho;x++){
-      const p=y*ancho+x, i=p*4;
-      const r=d[i],g=d[i+1],b=d[i+2];
-
-      // rojo debe dominar
-      let esSangre=false;
-      if(r>=g && r>=b){
-        const max=r>g?(r>b?r:b):(g>b?g:b);
-        const min=r<g?(r<b?r:b):(g<b?g:b);
-        const v=max/255;
-        const s=max===0?0:(max-min)/max;
-        if(s>=t.sMin && v>=t.vMin && v<=t.vMax){
-          // hue
-          const delta=max-min;
-          let h=0;
-          if(delta!==0){
-            if(max===r)h=60*(((g-b)/delta)%6);
-            else if(max===g)h=60*(((b-r)/delta)+2);
-            else h=60*(((r-g)/delta)+4);
-            if(h<0)h+=360;
-          }
-          if(h<=t.hLow || h>=t.hHigh)esSangre=true;
-        }
-      }
-
-      mask[p]=esSangre?1:0;
-      if(esSangre){
-        // brillo según intensidad original para dar textura
-        const k=0.7+0.3*(r/255);
-        d[i]=Math.min(255,hr*k); d[i+1]=Math.min(255,hg*k); d[i+2]=Math.min(255,hb*k);
-        totalSangre++;
-      }else{
-        // fondo: gris-azulado oscuro
-        const lum=(r*0.299+g*0.587+b*0.114);
-        d[i]=lum*0.22; d[i+1]=lum*0.34; d[i+2]=lum*0.60;
-      }
+  for(let p=0,i=0;p<mask.length;p++,i+=4){
+    const r=d[i],g=d[i+1],b=d[i+2];
+    if(mask[p]){
+      // brillo según intensidad original para dar textura
+      const k=0.7+0.3*(r/255);
+      d[i]=Math.min(255,hr*k); d[i+1]=Math.min(255,hg*k); d[i+2]=Math.min(255,hb*k);
+      totalSangre++;
+    }else{
+      // fondo: gris-azulado oscuro
+      const lum=(r*0.299+g*0.587+b*0.114);
+      d[i]=lum*0.22; d[i+1]=lum*0.34; d[i+2]=lum*0.60;
     }
   }
   ctx.putImageData(img,0,0);
@@ -388,7 +415,11 @@ function bucle(){
   const pct = totalSangre? (totalSangre/(ancho*alto)*100):0;
   pctEl.textContent = pct<1 ? pct.toFixed(1) : Math.round(pct);
 
-  const hay = manchas.length>0;
+  // Persistencia temporal: el aviso se confirma sólo si la mancha aparece
+  // de forma estable (histéresis), no por el parpadeo de ruido de un cuadro.
+  if(manchas.length>0)persist=Math.min(persist+1,3);
+  else persist=Math.max(persist-1,0);
+  const hay = persist>=2;
   if(hay!==alertaActiva){
     alertaActiva=hay;
     alertaEl.classList.toggle("on",hay);

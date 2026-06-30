@@ -1,4 +1,4 @@
-const CACHE = "rastro-v4";
+const CACHE = "rastro-v5";
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
