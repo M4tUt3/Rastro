@@ -166,6 +166,7 @@
     <div class="acciones">
       <button id="btnLinterna" disabled><span class="ic">▲</span>Linterna</button>
       <button id="btnCongelar"><span class="ic">❚❚</span>Congelar</button>
+      <button id="btnGuardar"><span class="ic">⤓</span>Guardar</button>
       <button id="btnPantalla"><span class="ic">⤢</span>Pantalla</button>
     </div>
   </div>
@@ -178,7 +179,7 @@ const video = $("#video"), lienzo = $("#lienzo"), ctx = lienzo.getContext("2d", 
 const inicio = $("#inicio"), aviso = $("#aviso"), estado = $("#estado");
 const pctEl = $("#pct"), alertaEl = $("#alerta");
 let stream=null, track=null, corriendo=false, congelado=false, wakeLock=null;
-let ancho=0, alto=0, mask=null, visit=null;
+let ancho=0, alto=0, mask=null, visit=null, ultimasManchas=[];
 let modo="fresca", colorSel="rojo", sens=0.60;
 let linternaOn=false;
 
@@ -200,6 +201,45 @@ $("#btnCongelar").addEventListener("click",e=>{
   estado.textContent=congelado?"congelado":"rastreando";
   if(!congelado)bucle();
 });
+$("#btnGuardar").addEventListener("click",guardarFoto);
+
+/* Captura la foto a resolución completa de la cámara, con los círculos
+   de lo detectado dibujados encima, y la manda a la galería. */
+async function guardarFoto(){
+  if(!corriendo){aviso.textContent="Primero arrancá la cámara.";return;}
+  const vw=video.videoWidth||ancho, vh=video.videoHeight||alto;
+  if(!vw||!vh)return;
+  const cap=document.createElement("canvas");
+  cap.width=vw; cap.height=vh;
+  const cc=cap.getContext("2d");
+  try{cc.drawImage(video,0,0,vw,vh);}catch(_){aviso.textContent="No se pudo capturar la imagen.";return;}
+  // círculos de lo detectado, escalados desde la resolución de proceso a la real
+  const esc=vw/ancho;
+  cc.lineWidth=Math.max(2,Math.round(2*esc));
+  cc.strokeStyle="rgba(224,163,36,.95)";
+  cc.shadowColor="rgba(224,163,36,.55)"; cc.shadowBlur=4*esc;
+  for(const m of ultimasManchas){
+    cc.beginPath(); cc.arc(m.cx*esc,m.cy*esc,m.r*esc,0,Math.PI*2); cc.stroke();
+  }
+  cc.shadowBlur=0;
+  const d=new Date(), z=n=>String(n).padStart(2,"0");
+  const ts=`${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`;
+  const nombre=`rastro-${ts}.jpg`;
+  cap.toBlob(async blob=>{
+    if(!blob){aviso.textContent="No se pudo generar la foto.";return;}
+    const file=new File([blob],nombre,{type:"image/jpeg"});
+    // 1) hoja de compartir: en el celular ofrece "Guardar imagen" en la galería
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{await navigator.share({files:[file],title:"RASTRO"});return;}
+      catch(err){if(err&&err.name==="AbortError")return;}
+    }
+    // 2) respaldo: descarga directa (escritorio o navegadores sin compartir archivos)
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=nombre;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+  },"image/jpeg",0.92);
+}
 $("#btnLinterna").addEventListener("click",async e=>{
   if(!track)return;
   const btn=e.currentTarget;          // capturar antes del await (luego e.currentTarget es null)
@@ -341,6 +381,7 @@ function bucle(){
 
   const minArea=Math.max(5,Math.round(ancho*alto*0.00012));
   const manchas=detectarManchas(mask,ancho,alto,visit,minArea);
+  ultimasManchas=manchas;
 
   ctx.lineWidth=2;ctx.strokeStyle="rgba(224,163,36,.95)";
   ctx.shadowColor="rgba(224,163,36,.55)";ctx.shadowBlur=4;
