@@ -179,7 +179,7 @@ const video = $("#video"), lienzo = $("#lienzo"), ctx = lienzo.getContext("2d", 
 const inicio = $("#inicio"), aviso = $("#aviso"), estado = $("#estado");
 const pctEl = $("#pct"), alertaEl = $("#alerta");
 let stream=null, track=null, corriendo=false, congelado=false, wakeLock=null;
-let ancho=0, alto=0, mask=null, visit=null, ultimasManchas=[];
+let ancho=0, alto=0, mask=null, visit=null;
 let modo="fresca", colorSel="rojo", sens=0.60;
 let linternaOn=false;
 
@@ -207,21 +207,17 @@ $("#btnGuardar").addEventListener("click",guardarFoto);
    de lo detectado dibujados encima, y la manda a la galería. */
 async function guardarFoto(){
   if(!corriendo){aviso.textContent="Primero arrancá la cámara.";return;}
-  const vw=video.videoWidth||ancho, vh=video.videoHeight||alto;
-  if(!vw||!vh)return;
+  if(!lienzo.width||!lienzo.height)return;
+  // La foto es la vista procesada (filtro + círculos) tal como se ve en
+  // pantalla, ampliada a la resolución de la cámara para mejor calidad.
+  const vw=video.videoWidth||lienzo.width;
+  const escala=Math.max(1, vw/lienzo.width);
   const cap=document.createElement("canvas");
-  cap.width=vw; cap.height=vh;
+  cap.width=Math.round(lienzo.width*escala);
+  cap.height=Math.round(lienzo.height*escala);
   const cc=cap.getContext("2d");
-  try{cc.drawImage(video,0,0,vw,vh);}catch(_){aviso.textContent="No se pudo capturar la imagen.";return;}
-  // círculos de lo detectado, escalados desde la resolución de proceso a la real
-  const esc=vw/ancho;
-  cc.lineWidth=Math.max(2,Math.round(2*esc));
-  cc.strokeStyle="rgba(224,163,36,.95)";
-  cc.shadowColor="rgba(224,163,36,.55)"; cc.shadowBlur=4*esc;
-  for(const m of ultimasManchas){
-    cc.beginPath(); cc.arc(m.cx*esc,m.cy*esc,m.r*esc,0,Math.PI*2); cc.stroke();
-  }
-  cc.shadowBlur=0;
+  cc.imageSmoothingEnabled=true; cc.imageSmoothingQuality="high";
+  try{cc.drawImage(lienzo,0,0,cap.width,cap.height);}catch(_){aviso.textContent="No se pudo capturar la imagen.";return;}
   const d=new Date(), z=n=>String(n).padStart(2,"0");
   const ts=`${d.getFullYear()}${z(d.getMonth()+1)}${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`;
   const nombre=`rastro-${ts}.jpg`;
@@ -381,7 +377,6 @@ function bucle(){
 
   const minArea=Math.max(5,Math.round(ancho*alto*0.00012));
   const manchas=detectarManchas(mask,ancho,alto,visit,minArea);
-  ultimasManchas=manchas;
 
   ctx.lineWidth=2;ctx.strokeStyle="rgba(224,163,36,.95)";
   ctx.shadowColor="rgba(224,163,36,.55)";ctx.shadowBlur=4;
