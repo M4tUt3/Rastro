@@ -71,7 +71,8 @@
   .alerta{position:absolute;top:12px;right:12px;font-size:11px;letter-spacing:.16em;font-weight:800;
     text-transform:uppercase;padding:7px 12px;border-radius:4px;border:1px solid var(--linea);
     background:rgba(7,10,7,.62);color:var(--hueso-tenue);transition:all .12s;}
-  .alerta.on{background:var(--sangre);color:#fff;border-color:var(--sangre);box-shadow:0 0 18px rgba(181,22,26,.6);}
+  .alerta.on{background:var(--sangre);color:#fff;border-color:var(--sangre);box-shadow:0 0 18px rgba(181,22,26,.6);animation:alertaPulso 1s ease-in-out infinite;}
+  @keyframes alertaPulso{0%,100%{box-shadow:0 0 14px rgba(181,22,26,.5);transform:scale(1);}50%{box-shadow:0 0 32px rgba(181,22,26,.98);transform:scale(1.06);}}
 
   /* Pantalla de inicio */
   #inicio{position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 0%,#11170f 0%,#070a07 70%);
@@ -356,11 +357,12 @@ function bucle(){
     alertaActiva=hay;
     alertaEl.classList.toggle("on",hay);
     alertaEl.textContent = hay?"● rastro detectado":"— sin rastro";
-  }
-
-  if(hay && navigator.vibrate){
-    const ahora=Date.now();
-    if(ahora-ultimoBuzz>700){navigator.vibrate(140);ultimoBuzz=ahora;}
+    // Aviso solo al APARECER un rastro nuevo: un único pulso de vibración, no en bucle.
+    // El aviso continuo lo da el destello visual de la insignia (alertaPulso).
+    if(hay && navigator.vibrate){
+      const ahora=Date.now();
+      if(ahora-ultimoBuzz>1200){navigator.vibrate([60,50,90]);ultimoBuzz=ahora;}
+    }
   }
 
   requestAnimationFrame(bucle);
